@@ -19,3 +19,5 @@ const ProtectedRoute = ({ children, requiresSubscription = false }: ProtectedRou
 
   return <>{children}</>;
 };
+
+export default ProtectedRoute
