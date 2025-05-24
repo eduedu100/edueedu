@@ -1,14 +1,45 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { loadStripe } from '@stripe/stripe-js';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import subscriptionPlans from '../data/subscriptionData';
 import Button from '../components/ui/Button';
 
-// Initialize Stripe
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+const plans = [
+  {
+    id: 'basic',
+    name: 'Basic Plan',
+    price: 9.99,
+    features: [
+      'Access to all basic activities',
+      'Limited progress tracking',
+      'Email support'
+    ]
+  },
+  {
+    id: 'premium',
+    name: 'Premium Plan',
+    price: 19.99,
+    features: [
+      'Access to all activities',
+      'Advanced progress tracking',
+      'Priority support',
+      'Downloadable resources'
+    ],
+    recommended: true
+  },
+  {
+    id: 'family',
+    name: 'Family Plan',
+    price: 29.99,
+    features: [
+      'Everything in Premium',
+      'Up to 4 child profiles',
+      '24/7 support',
+      'Family progress dashboard'
+    ]
+  }
+];
 
 const SubscriptionPage = () => {
   const [loading, setLoading] = useState(false);
@@ -16,44 +47,36 @@ const SubscriptionPage = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  if (!user) {
+    navigate('/login');
+    return null;
+  }
+
   const handleSubscribe = async (planId: string) => {
     try {
       setLoading(true);
       setError('');
 
-      if (!user) {
-        navigate('/login');
-        return;
-      }
+      // Calculate subscription end date (30 days from now)
+      const currentPeriodEnd = new Date();
+      currentPeriodEnd.setDate(currentPeriodEnd.getDate() + 30);
 
-      // Create a checkout session
-      const { data: { sessionId }, error: checkoutError } = await supabase.functions.invoke('create-checkout-session', {
-        body: {
-          planId,
-          userId: user.id,
-          email: user.email,
-        },
-      });
+      // Create subscription record
+      const { error: subscriptionError } = await supabase
+        .from('subscriptions')
+        .upsert({
+          user_id: user.id,
+          plan: planId,
+          status: 'active',
+          current_period_end: currentPeriodEnd.toISOString()
+        });
 
-      if (checkoutError) {
-        throw new Error(checkoutError.message);
-      }
+      if (subscriptionError) throw subscriptionError;
 
-      // Redirect to Stripe Checkout
-      const stripe = await stripePromise;
-      if (!stripe) {
-        throw new Error('Stripe failed to initialize');
-      }
-
-      const { error: stripeError } = await stripe.redirectToCheckout({
-        sessionId,
-      });
-
-      if (stripeError) {
-        throw new Error(stripeError.message);
-      }
+      // Redirect to dashboard
+      navigate('/dashboard');
     } catch (err: any) {
-      setError(err.message || 'Failed to process subscription');
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -76,44 +99,35 @@ const SubscriptionPage = () => {
         )}
 
         <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-          {subscriptionPlans.map((plan) => (
+          {plans.map((plan) => (
             <motion.div
               key={plan.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.3 }}
               className={`bg-white rounded-lg shadow-sm p-6 border-2 ${
-                plan.mostPopular ? 'border-primary-500' : 'border-transparent'
+                plan.recommended ? 'border-primary-500' : 'border-transparent'
               }`}
             >
-              {plan.mostPopular && (
+              {plan.recommended && (
                 <div className="bg-primary-500 text-white text-sm font-medium px-3 py-1 rounded-full inline-block mb-4">
-                  Most Popular
+                  Recommended
                 </div>
               )}
 
               <h3 className="text-xl font-bold text-gray-900 mb-2">{plan.name}</h3>
-              <p className="text-gray-600 mb-4">{plan.description}</p>
-
               <div className="mb-6">
                 <span className="text-4xl font-bold text-gray-900">
                   ${plan.price}
                 </span>
-                <span className="text-gray-600">/{plan.period}</span>
+                <span className="text-gray-600">/month</span>
               </div>
 
               <ul className="space-y-3 mb-6">
                 {plan.features.map((feature, index) => (
-                  <li
-                    key={index}
-                    className={`flex items-start ${
-                      feature.included ? 'text-gray-900' : 'text-gray-400'
-                    }`}
-                  >
+                  <li key={index} className="flex items-center text-gray-600">
                     <svg
-                      className={`h-6 w-6 mr-2 ${
-                        feature.included ? 'text-green-500' : 'text-gray-300'
-                      }`}
+                      className="h-5 w-5 text-green-500 mr-2"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -122,20 +136,16 @@ const SubscriptionPage = () => {
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth={2}
-                        d={
-                          feature.included
-                            ? 'M5 13l4 4L19 7'
-                            : 'M6 18L18 6M6 6l12 12'
-                        }
+                        d="M5 13l4 4L19 7"
                       />
                     </svg>
-                    {feature.name}
+                    {feature}
                   </li>
                 ))}
               </ul>
 
               <Button
-                variant={plan.mostPopular ? 'primary' : 'outline'}
+                variant={plan.recommended ? 'primary' : 'outline'}
                 fullWidth
                 onClick={() => handleSubscribe(plan.id)}
                 disabled={loading}
@@ -155,7 +165,7 @@ const SubscriptionPage = () => {
               <dt className="font-medium text-gray-900">When will I be charged?</dt>
               <dd className="mt-2 text-gray-600">
                 You'll be charged immediately upon subscribing, and then on the same
-                date each month/year depending on your plan.
+                date each month.
               </dd>
             </div>
             <div>

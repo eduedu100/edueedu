@@ -3,16 +3,19 @@ import { useAuth } from '../../contexts/AuthContext';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
+  requiresSubscription?: boolean;
 }
 
-const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const { isAuthenticated } = useAuth();
+const ProtectedRoute = ({ children, requiresSubscription = false }: ProtectedRouteProps) => {
+  const { isAuthenticated, user } = useAuth();
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
+  if (requiresSubscription && (!user?.subscription || user.subscription === 'free')) {
+    return <Navigate to="/subscription" replace />;
+  }
+
   return <>{children}</>;
 };
-
-export default ProtectedRoute;
